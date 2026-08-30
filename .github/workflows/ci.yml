@@ -35,8 +35,11 @@ jobs:
       # The image clones its source at a pinned commit rather than copying the
       # build context, so every download happens at build time. This fails if
       # that pin no longer matches the source on this branch.
+      # Invoked through bash rather than executed directly: the exec bit is not
+      # reliably preserved when committing from Windows, and a permission error
+      # here would look like a pin failure.
       - name: Check GIT_COMMIT pin
-        run: ./scripts/pin_source_commit.sh --check
+        run: bash scripts/pin_source_commit.sh --check
 
   sample-data:
     name: Sample data is reproducible
