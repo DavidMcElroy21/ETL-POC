@@ -167,17 +167,48 @@ the original survives in a `_raw` column or a boolean flag.
 
 Full reasoning in [`docs/architecture.md`](docs/architecture.md).
 
-## Reproducibility
+## Reproducibility and offline operation
 
-Nothing resolves at build time. The base image and every compose image are pinned
-by `sha256` digest, `apt` packages by exact version, and Python dependencies come
-from hash-pinned lock files installed with `--require-hashes`. Airbyte connectors
-are installed from an explicit `pip_url` rather than the connector registry.
+Everything is downloaded at **build** time, so the running container needs no
+internet at all.
 
-Regenerate the locks deliberately:
+The image does not copy the build context. It clones this repository at a pinned
+commit SHA and verifies the checkout, alongside the dependency locks, the Airbyte
+connector virtualenvs and the dbt packages — all resolved during the build. The
+commit it was built from is stamped at `/opt/etl/GIT_COMMIT`.
+
+Prove it:
 
 ```bash
-./scripts/lock_requirements.sh
+docker compose build
+docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
+```
+
+The overlay marks the network `internal`, removing its gateway. Containers still
+reach each other by name but have no route off the host, so anything that
+quietly depended on a download fails instead of succeeding by accident. The
+pipeline runs unchanged:
+
+```
+Done. PASS=52 WARN=13 ERROR=0 SKIP=0 NO-OP=0 TOTAL=65
+```
+
+Nothing resolves at build time either. The base image and every compose image are
+pinned by `sha256` digest, `apt` packages by exact version, and Python
+dependencies come from hash-pinned lock files installed with `--require-hashes`.
+Airbyte connectors are installed from an explicit `pip_url` rather than the
+connector registry.
+
+```bash
+./scripts/lock_requirements.sh      # regenerate the dependency locks
+./scripts/pin_source_commit.sh      # re-pin the source commit after a change
+```
+
+To build from the working tree instead of the pinned commit — for development,
+and what CI does:
+
+```bash
+docker compose build --build-arg SOURCE_STAGE=local-source app
 ```
 
 ## Regenerating the sample data

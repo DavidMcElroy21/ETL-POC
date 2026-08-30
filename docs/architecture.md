@@ -21,7 +21,9 @@
     Dagster orchestrates both halves as one asset graph.
 ```
 
-Three containers: one built here, two stock upstream images.
+Three containers for the core pipeline: one built here, two stock upstream
+images. Two more (MinIO and a CDC Postgres) back the ingestion exercises in
+docs/local-ingestion-options.md and are not needed to run the pipeline.
 
 ## Why PyAirbyte instead of the Airbyte platform
 
@@ -129,11 +131,47 @@ Nothing resolves at build time:
   from the connector registry.
 - `dbt_utils` pinned exactly, with `package-lock.yml` committed.
 - Compose images pinned by digest.
+- The application source itself is cloned from the published repository at a
+  pinned commit and verified after checkout, rather than copied from the build
+  context.
 
 Locks are regenerated deliberately with
 [`scripts/lock_requirements.sh`](../scripts/lock_requirements.sh), which runs
 `uv pip compile` inside the same digest-pinned base image the Dockerfile uses, so
 the locks match the interpreter that installs them.
+
+## Offline operation
+
+Because every download happens during the build, the container runs with no
+internet access. `docker-compose.offline.yml` marks the network `internal` to
+make that enforceable rather than merely claimed.
+
+Two things had to change to get there, and both are worth knowing about:
+
+- **`AIRBYTE_OFFLINE_MODE=1`.** PyAirbyte contacts the Airbyte connector registry
+  on every `get_source()` call, even for a connector already installed locally,
+  and raises `AirbyteConnectorRegistryError` when it cannot reach it. The
+  connector virtualenvs are baked in and every version is pinned explicitly, so
+  the registry has nothing to tell us.
+
+- **No `DbtProject.prepare_if_dev()`.** `dagster dev` sets `DAGSTER_IS_DEV_CLI`,
+  so that call ran on every container start and re-ran `dbt deps` — which needs
+  the network, and which *empties* `dbt_packages/` when it cannot reach the
+  package hub. The image already resolves packages and compiles the manifest at
+  build time. It would earn its place if the project directory were bind-mounted
+  for live editing; it is not.
+
+### Keeping the source pin honest
+
+The pin has to stay in step with the source, which
+[`scripts/pin_source_commit.sh`](../scripts/pin_source_commit.sh) enforces in CI.
+
+It treats a pin as current when the commit it names has the *same source tree* as
+HEAD for every path the image copies, rather than requiring it to equal HEAD.
+That is the property that actually matters — it is what makes the built image
+identical — and it also resolves the ordering problem: the commit that updates
+the pin touches only the Dockerfile, which is never copied into the image, so
+pinning to HEAD before making that commit leaves the pin correct afterwards.
 
 The one place this bites: pinned `apt` versions disappear from the Debian mirror
 when a point release is superseded, and the build then fails. That is the

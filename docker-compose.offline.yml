@@ -1,0 +1,25 @@
+# Overlay that cuts the stack off from the internet.
+#
+# Everything the pipeline needs is baked into the image at build time -- the
+# application source at a pinned commit, both dependency virtualenvs, the
+# Airbyte connector virtualenvs and the dbt packages -- so nothing is downloaded
+# at run time. This makes that guarantee enforceable rather than merely claimed.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
+#
+# `internal: true` removes the network's gateway: containers can still reach each
+# other by service name, but have no route off the host. A run that quietly
+# depended on fetching something would fail here instead of succeeding by
+# accident.
+#
+# Build first, while the network is still available -- the build itself does need
+# to reach GitHub, PyPI and the Docker registry:
+#
+#   docker compose build
+#   docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
+#
+# Images must already be present locally; with no gateway, compose cannot pull.
+
+networks:
+  default:
+    internal: true

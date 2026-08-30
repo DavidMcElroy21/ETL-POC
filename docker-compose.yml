@@ -1,4 +1,4 @@
-# The whole stack: one application image plus two stock upstream services.
+# The whole stack: one application image plus stock upstream services.
 #
 # The application image contains PyAirbyte, dbt and Dagster together. Postgres
 # and the SFTP server are daemons, so they are separate containers -- but there
@@ -7,6 +7,12 @@
 # application side down to a single image.
 #
 #   docker compose up -d --build      then open http://localhost:3000
+#
+# Core pipeline only, without the ingestion-exercise targets:
+#   docker compose up -d --build postgres sftp app
+#
+# With no internet access at all, to prove nothing is downloaded at run time:
+#   docker compose -f docker-compose.yml -f docker-compose.offline.yml up -d
 #
 # Every image is pinned by digest. See docs/architecture.md for the reasoning.
 

@@ -81,21 +81,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # ---------------------------------------------------------------------------
 # Stage: git-source -- the application source, cloned at an exact commit.
 #
-# GIT_COMMIT is the last commit that changed anything this image copies
-# (pipeline/, ingest/, dbt/, scripts/, requirements/ and the two YAML files).
-# It is intentionally not the tip of main: the commit that updates this pin only
-# edits the Dockerfile, which is never copied into the image, so pinning its
-# parent is exact rather than approximate.
+# GIT_COMMIT must name a pushed commit whose source tree matches the one being
+# built -- for pipeline/, ingest/, dbt/, scripts/, requirements/ and the YAML
+# files below, which are all this image copies.
 #
-# Re-pin after changing application source with:
-#   ./scripts/pin_source_commit.sh
-# and verify a pin is current with:
-#   ./scripts/pin_source_commit.sh --check
+# It does not have to equal the tip of main. The commit that updates this pin
+# edits only the Dockerfile, which is never copied into the image, so the pin
+# stays valid across it.
+#
+#   ./scripts/pin_source_commit.sh           re-pin after changing source
+#   ./scripts/pin_source_commit.sh --check   verify the pin (also runs in CI)
 # ---------------------------------------------------------------------------
 FROM base AS git-source
 
 ARG GIT_REPO_URL=https://github.com/DavidMcElroy21/ETL-POC.git
-ARG GIT_COMMIT=6402270bbbba56a16443cd361e5223b8b4bae104
+ARG GIT_COMMIT=dd3e0d0daa0c0cccc7afacc00ef51a4bbfff8e70
 
 WORKDIR /src
 # Fetching the single commit rather than cloning the whole history keeps the
@@ -209,6 +209,15 @@ ENV DBT_LOG_PATH=/tmp/dbt/logs
 # on their behalf is not a decision this project should make for them.
 # Dagster telemetry is disabled separately, in dagster.yaml.
 ENV DO_NOT_TRACK=1
+
+# Without this, PyAirbyte contacts the Airbyte connector registry on every
+# get_source() call -- even for a connector already installed locally -- and
+# raises AirbyteConnectorRegistryError when it cannot reach it. The connector
+# virtualenvs are baked into this image and every version is pinned explicitly
+# in ingest/connectors.py, so there is nothing the registry can tell us.
+# Setting it makes the container work with no internet access at all; see
+# docker-compose.offline.yml.
+ENV AIRBYTE_OFFLINE_MODE=1
 
 # The orchestrator venv is first on PATH: `dagster` and `dbt` resolve without
 # qualification, while the ingest venv is addressed explicitly by full path so

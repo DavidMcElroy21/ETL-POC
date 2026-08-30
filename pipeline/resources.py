@@ -16,9 +16,17 @@ dbt_project = DbtProject(
     target="dev",
 )
 
-# Regenerates the manifest when DAGSTER_IS_DEV_CLI is set, so editing a model
-# locally is reflected without an image rebuild. A no-op in production.
-dbt_project.prepare_if_dev()
+# Deliberately no dbt_project.prepare_if_dev() here.
+#
+# `dagster dev` sets DAGSTER_IS_DEV_CLI, so that call would run on every start
+# and re-run `dbt deps` -- which needs the network, and which empties
+# dbt_packages/ when it cannot reach the package hub. The image already resolves
+# packages and compiles the manifest at build time, so the call buys nothing and
+# breaks the offline guarantee.
+#
+# It would earn its place if the project directory were bind-mounted for live
+# editing. It is not: the image is the unit of deployment here, so a model change
+# means a rebuild either way.
 
 
 def build_resources() -> dict[str, object]:
