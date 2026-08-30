@@ -95,7 +95,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 FROM base AS git-source
 
 ARG GIT_REPO_URL=https://github.com/DavidMcElroy21/ETL-POC.git
-ARG GIT_COMMIT=bfb001d588201def89fc983d4d15bf107ee1019a
+ARG GIT_COMMIT=8fb18eebf2112ad7dde3df73a6fc5b2f2766f7b4
 
 WORKDIR /src
 # Fetching the single commit rather than cloning the whole history keeps the
