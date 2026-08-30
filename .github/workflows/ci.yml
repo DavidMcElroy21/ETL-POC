@@ -24,6 +24,20 @@ jobs:
       - name: Check for agent instruction files
         run: python scripts/check_no_agent_files.py
 
+  source-pin:
+    name: Dockerfile source pin is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the check compares source trees across commits.
+          fetch-depth: 0
+      # The image clones its source at a pinned commit rather than copying the
+      # build context, so every download happens at build time. This fails if
+      # that pin no longer matches the source on this branch.
+      - name: Check GIT_COMMIT pin
+        run: ./scripts/pin_source_commit.sh --check
+
   sample-data:
     name: Sample data is reproducible
     runs-on: ubuntu-latest
@@ -48,8 +62,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # SOURCE_STAGE=local-source builds the working tree instead of the
+      # pinned commit. CI is testing the code in this branch, which by
+      # definition is not yet published for the default git-source stage to
+      # fetch.
       - name: Build and start the stack
-        run: docker compose up -d --build
+        run: docker compose build --build-arg SOURCE_STAGE=local-source app
+
+      - name: Start the stack
+        run: docker compose up -d
 
       - name: Wait for the application to become healthy
         run: |

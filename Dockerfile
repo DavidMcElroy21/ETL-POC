@@ -4,6 +4,16 @@
 # dbt for transformation, Dagster for orchestration. Postgres and the SFTP
 # server are stock upstream images supplied by docker-compose.yml.
 #
+# Everything is fetched at build time
+# -----------------------------------
+# The application source is cloned from the published repository at an exact
+# commit, not copied from the local build context. Together with the pinned
+# dependency locks that means a build downloads everything it will ever need,
+# and the resulting container runs with no network access at all.
+#
+# For local development, build from the working tree instead:
+#   docker compose build --build-arg SOURCE_STAGE=local-source app
+#
 # Two virtualenvs, one image
 # --------------------------
 # PyAirbyte and dbt/Dagster cannot share a virtualenv. Their resolved
@@ -17,16 +27,20 @@
 #
 # Pinning
 # -------
-# Nothing resolves at build time. The base image is pinned by digest, apt
-# packages by exact version, and Python dependencies by the hash-pinned
-# requirements/*.lock files installed with --require-hashes. Regenerate the
-# locks with scripts/lock_requirements.sh.
+# Nothing resolves at build time. The source is pinned by commit, the base image
+# by digest, apt packages by exact version, and Python dependencies by the
+# hash-pinned requirements/*.lock files installed with --require-hashes.
+# Regenerate the locks with scripts/lock_requirements.sh.
 
 # python:3.11-slim-bookworm
 #
 # 3.11 is not a preference, it is the only version that works: PyAirbyte
 # requires >=3.10,<3.13 and the sftp-bulk connector requires >=3.10,<3.12.
 ARG BASE_IMAGE=python@sha256:0bee7276f83efd4a1ee05bbbf4281d95ed28e079220a9457f25a93e3f1e3c31b
+
+# Which stage the application source comes from. Default is the pinned clone;
+# override with `local-source` to build the working tree.
+ARG SOURCE_STAGE=git-source
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +79,54 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 
 # ---------------------------------------------------------------------------
+# Stage: git-source -- the application source, cloned at an exact commit.
+#
+# GIT_COMMIT is the last commit that changed anything this image copies
+# (pipeline/, ingest/, dbt/, scripts/, requirements/ and the two YAML files).
+# It is intentionally not the tip of main: the commit that updates this pin only
+# edits the Dockerfile, which is never copied into the image, so pinning its
+# parent is exact rather than approximate.
+#
+# Re-pin after changing application source with:
+#   ./scripts/pin_source_commit.sh
+# and verify a pin is current with:
+#   ./scripts/pin_source_commit.sh --check
+# ---------------------------------------------------------------------------
+FROM base AS git-source
+
+ARG GIT_REPO_URL=https://github.com/DavidMcElroy21/ETL-POC.git
+ARG GIT_COMMIT=6402270bbbba56a16443cd361e5223b8b4bae104
+
+WORKDIR /src
+# Fetching the single commit rather than cloning the whole history keeps the
+# download small, and checking out by full SHA means the result cannot change
+# under us even if a branch or tag is later moved.
+RUN git init --quiet . \
+    && git remote add origin "${GIT_REPO_URL}" \
+    && git fetch --quiet --depth 1 origin "${GIT_COMMIT}" \
+    && git checkout --quiet FETCH_HEAD \
+    && test "$(git rev-parse HEAD)" = "${GIT_COMMIT}" \
+    && rm -rf /src/.git \
+    && echo "${GIT_COMMIT}" > /src/GIT_COMMIT
+
+
+# ---------------------------------------------------------------------------
+# Stage: local-source -- the working tree, for development builds.
+# ---------------------------------------------------------------------------
+FROM base AS local-source
+
+WORKDIR /src
+COPY . /src
+RUN echo "local-working-tree" > /src/GIT_COMMIT
+
+
+# ---------------------------------------------------------------------------
+# Stage: source -- whichever of the two was selected.
+# ---------------------------------------------------------------------------
+FROM ${SOURCE_STAGE} AS source
+
+
+# ---------------------------------------------------------------------------
 # Stage: ingest-venv -- PyAirbyte, plus the connector virtualenvs it will use.
 # ---------------------------------------------------------------------------
 FROM base AS ingest-venv
@@ -74,7 +136,7 @@ ENV INGEST_VENV=/opt/venv/ingest \
 
 RUN python -m venv "${INGEST_VENV}"
 
-COPY requirements/ingest.lock /tmp/ingest.lock
+COPY --from=source /src/requirements/ingest.lock /tmp/ingest.lock
 # --require-hashes verifies every artifact and implies --no-deps, so the lock is
 # the complete and only input to this install.
 RUN "${INGEST_VENV}/bin/pip" install \
@@ -86,8 +148,8 @@ RUN "${INGEST_VENV}/bin/pip" install \
 # Bake the Airbyte connector virtualenvs into the image. Without this, PyAirbyte
 # would download and install each connector on first run, making container start
 # slow and dependent on network access at exactly the wrong moment.
-COPY ingest /tmp/build/ingest
-COPY scripts/install_connectors.py /tmp/build/install_connectors.py
+COPY --from=source /src/ingest /tmp/build/ingest
+COPY --from=source /src/scripts/install_connectors.py /tmp/build/install_connectors.py
 # PyAirbyte builds each connector virtualenv by shelling out to `uv` by name, so
 # the ingest venv's bin directory has to be on PATH -- uv is installed into that
 # venv as one of PyAirbyte's own dependencies.
@@ -106,7 +168,7 @@ ENV ORCHESTRATOR_VENV=/opt/venv/orchestrator
 
 RUN python -m venv "${ORCHESTRATOR_VENV}"
 
-COPY requirements/orchestrator.lock /tmp/orchestrator.lock
+COPY --from=source /src/requirements/orchestrator.lock /tmp/orchestrator.lock
 RUN "${ORCHESTRATOR_VENV}/bin/pip" install \
         --no-cache-dir \
         --require-hashes \
@@ -118,7 +180,9 @@ RUN "${ORCHESTRATOR_VENV}/bin/pip" install \
 WORKDIR /opt/etl/dbt/retail
 # dbt deps reads dbt_project.yml for the project name and package install path,
 # so it has to be here too -- packages.yml alone is not enough.
-COPY dbt/retail/dbt_project.yml dbt/retail/packages.yml dbt/retail/package-lock.yml ./
+COPY --from=source /src/dbt/retail/dbt_project.yml ./
+COPY --from=source /src/dbt/retail/packages.yml ./
+COPY --from=source /src/dbt/retail/package-lock.yml ./
 RUN "${ORCHESTRATOR_VENV}/bin/dbt" deps --project-dir /opt/etl/dbt/retail
 
 
@@ -163,12 +227,15 @@ COPY --from=orchestrator-venv --chown=etl:etl /opt/etl/dbt/retail/dbt_packages /
 
 WORKDIR ${APP_HOME}
 
-COPY --chown=etl:etl dagster.yaml workspace.yaml docker-entrypoint.sh ./
+COPY --from=source --chown=etl:etl /src/dagster.yaml ./
+COPY --from=source --chown=etl:etl /src/workspace.yaml ./
+COPY --from=source --chown=etl:etl /src/docker-entrypoint.sh ./
+COPY --from=source --chown=etl:etl /src/GIT_COMMIT ./
 RUN chmod +x ./docker-entrypoint.sh
-COPY --chown=etl:etl pipeline ./pipeline
-COPY --chown=etl:etl ingest ./ingest
-COPY --chown=etl:etl dbt ./dbt
-COPY --chown=etl:etl scripts ./scripts
+COPY --from=source --chown=etl:etl /src/pipeline ./pipeline
+COPY --from=source --chown=etl:etl /src/ingest ./ingest
+COPY --from=source --chown=etl:etl /src/dbt ./dbt
+COPY --from=source --chown=etl:etl /src/scripts ./scripts
 
 # Compile the dbt manifest into the image. Dagster needs manifest.json to build
 # its asset graph at code-load time; producing it here means an unparseable dbt
