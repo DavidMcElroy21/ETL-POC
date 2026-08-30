@@ -1,0 +1,6 @@
+packages:
+  # Provides accepted_range and expression_is_true, which express two of the
+  # seeded defects (negative prices, arithmetic drift) far more directly than a
+  # hand-written singular test would.
+  - package: dbt-labs/dbt_utils
+    version: 1.4.1

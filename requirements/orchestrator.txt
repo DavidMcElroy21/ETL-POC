@@ -1,0 +1,21 @@
+# Orchestration and transformation environment: Dagster + dbt.
+#
+# Direct dependencies only, exact versions. requirements/orchestrator.lock is
+# the fully-transitive hash-pinned file the Dockerfile actually installs.
+# Regenerate with scripts/lock_requirements.sh
+#
+# Version coupling worth knowing about:
+#   * dagster-dbt 0.29.20 requires dagster==1.13.20 exactly.
+#   * dagster-dbt 0.29.20 requires dbt-core<1.12, so dbt-core is held on the
+#     1.11 line even though 1.12 is released.
+#   * dbt-postgres 1.11.0 pulls dbt-adapters and psycopg2-binary itself; both
+#     are listed here anyway so the intent is explicit rather than incidental.
+
+dagster==1.13.20
+dagster-webserver==1.13.20
+dagster-dbt==0.29.20
+
+dbt-core==1.11.14
+dbt-postgres==1.11.0
+
+psycopg2-binary==2.9.12

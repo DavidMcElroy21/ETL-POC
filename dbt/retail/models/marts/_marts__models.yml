@@ -1,0 +1,210 @@
+version: 2
+
+# ---------------------------------------------------------------------------
+# Marts tests run at ERROR severity.
+#
+# Staging tests warn because the raw feed is known to be defective and the
+# pipeline should not stop for it. By the time data reaches the marts those
+# defects have been resolved, so a failure here means the cleaning logic is
+# broken -- and that genuinely should stop the build.
+#
+# These tests pass on the sample data. Together with the stores control group
+# in staging, they are the evidence that `dbt build` exiting 0 means the tests
+# ran and were satisfied, not that testing was disabled.
+# ---------------------------------------------------------------------------
+
+models:
+  - name: dim_customers
+    description: >
+      One row per customer, deduplicated, with country normalised to ISO
+      alpha-2 and impossible signup dates nulled and flagged.
+    columns:
+      - name: customer_id
+        description: Unique after deduplication -- the DQ-01 duplicates are resolved here.
+        data_tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: country_code
+        description: >
+          Normalised country. 'XX' is the explicit unknown bucket; it is
+          accepted so an unrecognised input surfaces as data rather than as a
+          build failure.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["US", "CA", "GB", "FR", "DE", "XX"]
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: signup_date
+        description: Null where the source date was in the future (DQ-04).
+
+      - name: had_invalid_signup_date
+        data_tests:
+          - not_null:
+              config:
+                severity: error
+
+  - name: dim_products
+    description: One row per product, with categories filled and negative prices quarantined.
+    columns:
+      - name: product_id
+        data_tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: category
+        description: Never null -- DQ-06 rows land in the 'Uncategorised' bucket.
+        data_tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: unit_price
+        description: >
+          Null where the source price was negative (DQ-05); unit_price_raw
+          keeps the original so the correction stays auditable.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: true
+              config:
+                severity: error
+
+  - name: dim_stores
+    description: Store dimension. Clean at source, clean here.
+    columns:
+      - name: store_id
+        data_tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+  - name: fct_orders
+    description: >
+      One row per order. Defective rows are retained and flagged rather than
+      dropped -- deleting them would discard the signal this pipeline exists to
+      surface.
+    columns:
+      - name: order_id
+        description: Unique after deduplication -- the DQ-09 duplicate is resolved here.
+        data_tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: status
+        description: Normalised vocabulary, plus an explicit 'unknown' for DQ-08 rows.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["placed", "picked", "shipped", "delivered", "returned", "unknown"]
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: store_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_stores')
+                field: store_id
+              config:
+                severity: error
+
+      - name: order_total
+        data_tests:
+          - not_null:
+              config:
+                severity: error
+
+  - name: fct_order_items
+    description: One row per order line, with the arithmetic variance materialised.
+    columns:
+      - name: order_item_id
+        data_tests:
+          - unique:
+              config:
+                severity: error
+          - not_null:
+              config:
+                severity: error
+
+      - name: product_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: product_id
+              config:
+                severity: error
+
+      - name: line_total_variance
+        description: reported minus expected; non-zero on the six DQ-12 rows.
+        data_tests:
+          - not_null:
+              config:
+                severity: error
+
+  - name: agg_daily_store_sales
+    description: >
+      Daily sales per store, built from the clean subset of orders. Carries the
+      count of rows excluded for each reason so the scale of the excluded data
+      is visible alongside the numbers rather than having to be taken on trust.
+    columns:
+      - name: order_date
+        data_tests:
+          - not_null:
+              config:
+                severity: error
+
+      - name: store_id
+        data_tests:
+          - not_null:
+              config:
+                severity: error
+          - relationships:
+              arguments:
+                to: ref('dim_stores')
+                field: store_id
+              config:
+                severity: error
+
+      - name: gross_sales
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: true
+              config:
+                severity: error
+
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - order_date
+              - store_id
+          config:
+            severity: error

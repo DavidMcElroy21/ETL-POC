@@ -1,0 +1,24 @@
+# Ingestion environment: PyAirbyte only.
+#
+# Kept deliberately separate from the orchestrator environment. PyAirbyte hard
+# pins sqlalchemy, duckdb and rich, and pulls in airbyte-cdk, fastmcp and every
+# warehouse driver it supports (Snowflake and BigQuery included, unused here --
+# it ships cache backends for all of them and offers no extras to opt out).
+# Co-resolving that with dbt-core and Dagster is fragile, so the two live in
+# separate virtualenvs inside the same image and talk over Dagster Pipes.
+#
+# Direct dependencies only, exact versions. requirements/ingest.lock is the
+# fully-transitive hash-pinned file the Dockerfile actually installs.
+# Regenerate with scripts/lock_requirements.sh
+
+airbyte==0.58.1
+
+# Zero-dependency client half of the Dagster Pipes protocol. Lets this venv
+# stream logs and asset metadata back to the orchestrator without importing
+# Dagster itself.
+dagster-pipes==1.13.20
+
+# S3 access for the MinIO ingestion path (docs/local-ingestion-options.md #4).
+# Used directly rather than through airbyte-source-s3, which cannot be installed
+# from PyPI -- see the note in ingest/connectors.py.
+boto3==1.43.83

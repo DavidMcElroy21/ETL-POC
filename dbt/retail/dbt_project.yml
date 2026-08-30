@@ -1,0 +1,56 @@
+name: retail
+version: "1.0.0"
+config-version: 2
+
+profile: retail
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+# ---------------------------------------------------------------------------
+# Test severity
+#
+# Warn, not fail, is the whole point of this project. The sample data carries
+# thirteen deliberate defects (docs/data-quality.md); every one of them is
+# caught by a test, and none of them stops the pipeline. `dbt build` exits 0
+# and the warnings are the deliverable.
+#
+# This sets the project-wide default. Individual tests raise themselves back to
+# error where a failure genuinely should halt the run -- see the store tests in
+# models/staging/_staging__models.yml, which pass, and which are what
+# demonstrate that severity here is a deliberate setting rather than testing
+# being switched off.
+#
+# To see every warning as a failure instead:  dbt build --warn-error
+# ---------------------------------------------------------------------------
+data_tests:
+  +severity: warn
+  # Report every failing row rather than the default 5, so the counts in the
+  # output can be checked against docs/data-quality.md directly.
+  +limit: 100
+  +store_failures: true
+  +schema: dq_failures
+
+models:
+  retail:
+    +persist_docs:
+      relation: true
+      columns: true
+
+    staging:
+      +materialized: view
+      +schema: staging
+
+    marts:
+      +materialized: table
+      +schema: marts
+
+vars:
+  # Anything at or after this date is treated as impossible for a historical
+  # record. Used by the future-dated signup test (DQ-04).
+  retail_today: "2026-08-30"

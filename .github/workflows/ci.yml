@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: No agent instruction files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # This repository is published for model testing. Assistant instruction
+      # files would become part of the evaluation corpus and bias results, so
+      # .gitignore expresses the intent and this job enforces it.
+      - name: Check for agent instruction files
+        run: python scripts/check_no_agent_files.py
+
+  sample-data:
+    name: Sample data is reproducible
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # The generator asserts all thirteen defect counts against the numbers in
+      # docs/data-quality.md before it exits, so a drifted generator fails here.
+      - name: Regenerate and verify defect counts
+        run: python scripts/generate_retail_data.py
+      # And the committed files must match what the generator produces, so the
+      # data in the repository is always the data the documentation describes.
+      - name: Committed data matches the generator output
+        run: git diff --exit-code -- data/
+
+  pipeline:
+    name: End-to-end pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the stack
+        run: docker compose up -d --build
+
+      - name: Wait for the application to become healthy
+        run: |
+          for _ in $(seq 1 60); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' etl-poc-app-1 2>/dev/null || echo starting)
+            [ "$status" = healthy ] && exit 0
+            sleep 5
+          done
+          echo "application did not become healthy in time"
+          docker compose logs app
+          exit 1
+
+      - name: SFTP connectivity
+        run: docker compose exec -T app /opt/venv/ingest/bin/python -m ingest.run_sftp_sync --check
+
+      - name: Run the full pipeline
+        run: docker compose exec -T app dagster job execute -m pipeline.definitions -j retail_pipeline
+
+      # The core assertion: the pipeline succeeds, and it succeeds *with*
+      # warnings. A run reporting zero warnings would mean the seeded defects
+      # stopped being detected, which is a regression even though it looks green.
+      - name: dbt build warns without failing
+        run: |
+          output=$(docker compose exec -T app dbt build \
+            --project-dir /opt/etl/dbt/retail \
+            --profiles-dir /opt/etl/dbt/retail 2>&1)
+          echo "$output"
+          echo "$output" | grep -qE "WARN=13 ERROR=0" \
+            || { echo "::error::expected WARN=13 ERROR=0"; exit 1; }
+
+      # And the inverse: with --warn-error the same findings must fail the run.
+      # If this passes, the tests are not actually firing.
+      - name: Warnings become errors under --warn-error
+        run: |
+          if docker compose exec -T app dbt build \
+              --project-dir /opt/etl/dbt/retail \
+              --profiles-dir /opt/etl/dbt/retail --warn-error; then
+            echo "::error::--warn-error should have failed the build"
+            exit 1
+          fi
+
+      - name: Marts are populated
+        run: |
+          docker compose exec -T postgres psql -U etl -d retail -tAc \
+            "select count(*) from retail_marts.agg_daily_store_sales" \
+            | grep -qE "^[1-9][0-9]*$" \
+            || { echo "::error::agg_daily_store_sales is empty"; exit 1; }
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes

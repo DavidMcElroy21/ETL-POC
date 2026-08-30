@@ -1,0 +1,250 @@
+version: 2
+
+# ---------------------------------------------------------------------------
+# Every test below carries a DQ-nn tag matching docs/data-quality.md and the
+# injection site in scripts/generate_retail_data.py, so a warning in the dbt
+# output can be traced back to the line of code that created it.
+#
+# Severity defaults to warn for the whole project (see dbt_project.yml). The
+# stores model raises its tests back to error: that data is clean, those tests
+# pass, and their presence is what shows the warn severity elsewhere is a
+# deliberate setting rather than tests being switched off.
+# ---------------------------------------------------------------------------
+
+models:
+  - name: stg_customers
+    description: Customer master data, typed. Seeded defects left intact.
+    columns:
+      - name: customer_id
+        description: Natural key. Not unique in the raw feed -- see DQ-01.
+        data_tests:
+          - unique:
+              name: dq_01_customer_id_is_unique
+              config:
+                severity: warn
+              # DQ-01: two customer records are duplicated in the source file.
+          - not_null:
+              config:
+                severity: warn
+
+      - name: email
+        description: Contact email. Missing for a handful of customers -- DQ-02.
+        data_tests:
+          - not_null:
+              name: dq_02_customer_email_is_present
+              config:
+                severity: warn
+
+      - name: country
+        description: ISO 3166-1 alpha-2 country code.
+        data_tests:
+          - accepted_values:
+              name: dq_03_customer_country_is_iso_alpha2
+              arguments:
+                values: ["US", "CA", "GB", "FR", "DE"]
+              config:
+                severity: warn
+              # DQ-03: the same country appears as usa, USA, Usa and
+              # "United States". Only the alpha-2 form is valid.
+
+      - name: signup_date
+        description: Date the customer registered. One is in the future -- DQ-04.
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: loyalty_tier
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["bronze", "silver", "gold", "platinum"]
+              config:
+                severity: warn
+
+  - name: stg_products
+    description: Product catalogue, typed. Seeded defects left intact.
+    columns:
+      - name: product_id
+        data_tests:
+          - unique:
+              config:
+                severity: warn
+          - not_null:
+              config:
+                severity: warn
+
+      - name: category
+        description: Top-level category. Missing on three products -- DQ-06.
+        data_tests:
+          - not_null:
+              name: dq_06_product_category_is_present
+              config:
+                severity: warn
+
+      - name: unit_price
+        description: Retail price. One product has a negative price -- DQ-05.
+        data_tests:
+          - dbt_utils.accepted_range:
+              name: dq_05_product_unit_price_is_not_negative
+              arguments:
+                min_value: 0
+                inclusive: true
+              config:
+                severity: warn
+
+      - name: cost_price
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: true
+              config:
+                severity: warn
+
+  - name: stg_stores
+    description: >
+      Store locations. The control group: no defects are seeded here, so these
+      tests run at error severity and pass. If one of them ever fails the build
+      stops, which is the contrast that makes the warn severity elsewhere
+      meaningful.
+    columns:
+      - name: store_id
+        data_tests:
+          - unique:
+              name: control_store_id_is_unique
+              config:
+                severity: error
+          - not_null:
+              name: control_store_id_is_not_null
+              config:
+                severity: error
+
+      - name: country
+        data_tests:
+          - accepted_values:
+              name: control_store_country_is_iso_alpha2
+              arguments:
+                values: ["US", "CA", "GB"]
+              config:
+                severity: error
+
+      - name: square_feet
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+              config:
+                severity: error
+
+  - name: stg_orders
+    description: Order headers, typed. Seeded defects left intact.
+    columns:
+      - name: order_id
+        description: Natural key. One order is duplicated -- DQ-09.
+        data_tests:
+          - unique:
+              name: dq_09_order_id_is_unique
+              config:
+                severity: warn
+          - not_null:
+              config:
+                severity: warn
+
+      - name: customer_id
+        description: >
+          Foreign key to stg_customers. Five orders reference a customer that
+          does not exist -- DQ-07. In production this usually means a
+          late-arriving or partially extracted dimension.
+        data_tests:
+          - relationships:
+              name: dq_07_order_customer_exists
+              arguments:
+                to: ref('stg_customers')
+                field: customer_id
+              config:
+                severity: warn
+
+      - name: store_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_stores')
+                field: store_id
+              config:
+                severity: warn
+
+      - name: order_date
+        description: Two orders have no date -- DQ-10.
+        data_tests:
+          - not_null:
+              name: dq_10_order_date_is_present
+              config:
+                severity: warn
+
+      - name: status
+        description: >
+          Fulfilment status. Four rows break the vocabulary -- DQ-08. One of
+          them differs from a valid value only by a trailing space, which is the
+          kind of defect that survives a visual review indefinitely.
+        data_tests:
+          - accepted_values:
+              name: dq_08_order_status_is_known
+              arguments:
+                values: ["placed", "picked", "shipped", "delivered", "returned"]
+              config:
+                severity: warn
+
+  - name: stg_order_items
+    description: Order line items, typed. Seeded defects left intact.
+    columns:
+      - name: order_item_id
+        data_tests:
+          - unique:
+              config:
+                severity: warn
+          - not_null:
+              config:
+                severity: warn
+
+      - name: order_id
+        description: Foreign key to stg_orders. Four items are orphaned -- DQ-13.
+        data_tests:
+          - relationships:
+              name: dq_13_order_item_order_exists
+              arguments:
+                to: ref('stg_orders')
+                field: order_id
+              config:
+                severity: warn
+
+      - name: product_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_products')
+                field: product_id
+              config:
+                severity: warn
+
+      - name: quantity
+        description: Units ordered. One line is zero, one is negative -- DQ-11.
+        data_tests:
+          - dbt_utils.accepted_range:
+              name: dq_11_order_item_quantity_is_positive
+              arguments:
+                min_value: 1
+                inclusive: true
+              config:
+                severity: warn
+
+    data_tests:
+      - dbt_utils.expression_is_true:
+          name: dq_12_order_item_line_total_matches_arithmetic
+          arguments:
+            expression: "abs(line_total - expected_line_total) <= 0.01"
+          config:
+            severity: warn
+          # DQ-12: six lines where the stored total disagrees with
+          # quantity * unit_price * (1 - discount). The tolerance absorbs
+          # legitimate rounding; the seeded drift is far larger.

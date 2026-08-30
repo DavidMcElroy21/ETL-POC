@@ -1,0 +1,61 @@
+product_id,product_name,category,subcategory,unit_price,cost_price,supplier
+SKU-0001,Premium Green Tea,Grocery,Pantry,14.26,8.24,Supplier 06
+SKU-0002,House Olive Oil,Household,Cleaning,15.08,9.85,Supplier 07
+SKU-0003,House Cat Litter,Beverages,Juice,8.35,5.61,Supplier 12
+SKU-0004,Bulk Toothpaste,Personal Care,Skincare,35.25,17.85,Supplier 10
+SKU-0005,Organic Face Cream,Pet,Dog,42.53,22.38,Supplier 04
+SKU-0006,Value Basmati Rice,,Cleaning,20.40,10.60,Supplier 04
+SKU-0007,Value Orange Juice,Grocery,Frozen,39.44,18.34,Supplier 04
+SKU-0008,Classic Toothpaste,Personal Care,Haircare,1.97,1.09,Supplier 07
+SKU-0009,Bulk Green Tea,Pet,Dog,33.65,20.58,Supplier 03
+SKU-0010,Classic Cat Litter,Household,Laundry,37.20,20.82,Supplier 05
+SKU-0011,Classic Dish Soap,Household,Paper Goods,30.63,20.44,Supplier 01
+SKU-0012,House Toothpaste,Beverages,Coffee,40.02,19.10,Supplier 03
+SKU-0013,Classic Olive Oil,Personal Care,Skincare,12.69,7.82,Supplier 07
+SKU-0014,Classic Laundry Pods,Household,Laundry,43.57,20.09,Supplier 08
+SKU-0015,Bulk Dark Roast Beans,Personal Care,Oral Care,11.18,7.00,Supplier 05
+SKU-0016,Value Green Tea,Grocery,Bakery,46.17,29.46,Supplier 11
+SKU-0017,House Almond Butter,Household,Paper Goods,9.51,5.23,Supplier 10
+SKU-0018,House Sparkling Water,Personal Care,Haircare,3.17,2.02,Supplier 12
+SKU-0019,Premium Orange Juice,Household,Paper Goods,40.98,25.69,Supplier 06
+SKU-0020,Premium Laundry Pods,Beverages,Tea,31.62,19.75,Supplier 09
+SKU-0021,Bulk Laundry Pods,Beverages,Soft Drinks,3.76,1.95,Supplier 12
+SKU-0022,House Maple Syrup,Beverages,Soft Drinks,26.86,16.28,Supplier 02
+SKU-0023,Value Olive Oil,Beverages,Tea,-12.99,5.75,Supplier 06
+SKU-0024,House Shampoo,Beverages,Tea,21.04,13.97,Supplier 05
+SKU-0025,Value Toothpaste,Pet,Cat,33.88,23.08,Supplier 10
+SKU-0026,House Sea Salt,Grocery,Bakery,21.39,13.37,Supplier 04
+SKU-0027,Organic Paper Towels,Personal Care,Skincare,10.49,5.64,Supplier 12
+SKU-0028,Organic Dish Soap,Personal Care,Skincare,34.65,19.51,Supplier 05
+SKU-0029,Premium Orange Juice,Beverages,Soft Drinks,4.31,2.33,Supplier 09
+SKU-0030,Bulk Olive Oil,Grocery,Frozen,47.21,32.83,Supplier 09
+SKU-0031,Value Olive Oil,Household,Paper Goods,13.79,9.42,Supplier 04
+SKU-0032,Organic Tomato Passata,,Cat,46.35,29.67,Supplier 09
+SKU-0033,Classic Glass Cleaner,Personal Care,Oral Care,37.17,20.61,Supplier 01
+SKU-0034,Value Tomato Passata,Grocery,Bakery,24.16,16.42,Supplier 05
+SKU-0035,House Cat Litter,Household,Laundry,22.53,14.23,Supplier 11
+SKU-0036,House Tomato Passata,Household,Cleaning,13.87,7.74,Supplier 10
+SKU-0037,Classic Dish Soap,Grocery,Bakery,35.00,18.96,Supplier 04
+SKU-0038,Value Dark Roast Beans,Grocery,Produce,21.08,12.67,Supplier 12
+SKU-0039,House Orange Juice,Pet,Cat,46.71,33.29,Supplier 07
+SKU-0040,Premium Laundry Pods,Grocery,Pantry,45.53,24.96,Supplier 06
+SKU-0041,Bulk Toothpaste,Grocery,Produce,19.76,13.76,Supplier 06
+SKU-0042,House Sea Salt,Household,Laundry,36.89,19.85,Supplier 07
+SKU-0043,Premium Green Tea,Beverages,Tea,47.93,31.25,Supplier 06
+SKU-0044,House Dish Soap,Pet,Cat,26.37,18.94,Supplier 02
+SKU-0045,Organic Olive Oil,Beverages,Soft Drinks,16.47,9.16,Supplier 05
+SKU-0046,Bulk Sea Salt,Beverages,Tea,40.95,20.61,Supplier 03
+SKU-0047,Bulk Paper Towels,Beverages,Tea,42.92,27.46,Supplier 02
+SKU-0048,Premium Maple Syrup,Pet,Cat,24.84,16.90,Supplier 12
+SKU-0049,Premium Paper Towels,,Soft Drinks,15.18,8.34,Supplier 12
+SKU-0050,Classic Tomato Passata,Household,Cleaning,46.08,31.81,Supplier 08
+SKU-0051,Organic Dish Soap,Grocery,Frozen,14.92,7.44,Supplier 01
+SKU-0052,Value Paper Towels,Beverages,Soft Drinks,8.94,4.71,Supplier 08
+SKU-0053,Value Sea Salt,Household,Cleaning,10.85,5.26,Supplier 02
+SKU-0054,Value Green Tea,Personal Care,Haircare,31.89,19.28,Supplier 02
+SKU-0055,House Almond Butter,Household,Laundry,7.92,4.70,Supplier 03
+SKU-0056,Bulk Laundry Pods,Personal Care,Haircare,33.56,16.26,Supplier 11
+SKU-0057,Bulk Shampoo,Grocery,Pantry,11.57,6.26,Supplier 01
+SKU-0058,Premium Sparkling Water,Household,Laundry,45.65,28.28,Supplier 05
+SKU-0059,Bulk Cat Litter,Beverages,Soft Drinks,29.19,15.79,Supplier 11
+SKU-0060,Bulk Orange Juice,Pet,Cat,23.25,12.14,Supplier 12

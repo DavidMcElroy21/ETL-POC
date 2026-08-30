@@ -1,0 +1,37 @@
+version: 2
+
+sources:
+  - name: airbyte_raw
+    description: >
+      Raw records landed by PyAirbyte from the SFTP server. Written by the
+      ingestion layer and never modified by dbt.
+
+      Every column arrives as text. The connector is configured with
+      inference_type "None" on purpose, so type coercion happens in the staging
+      models where it is visible and reviewable, rather than inside the
+      connector where it is not.
+    database: "{{ env_var('POSTGRES_DB', 'retail') }}"
+    schema: airbyte_raw
+
+    # Airbyte adds these to every stream. Documented once here rather than
+    # repeated on all five tables.
+    #   _airbyte_raw_id                 per-record surrogate key
+    #   _airbyte_extracted_at           extraction timestamp
+    #   _airbyte_meta                   per-record parse warnings
+    #   _ab_source_file_url             which file the row came from
+    #   _ab_source_file_last_modified   that file's mtime on the server
+
+    tables:
+      - name: customers
+        description: Customer master data, one file per batch date.
+      - name: products
+        description: Product catalogue with unit and cost price.
+      - name: stores
+        description: >
+          Store locations. Held free of seeded defects as an experimental
+          control, so the error-severity tests downstream have something that
+          genuinely passes.
+      - name: orders
+        description: Order headers, arriving as two daily files.
+      - name: order_items
+        description: Order line items, arriving as two daily files.

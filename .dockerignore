@@ -1,0 +1,17 @@
+.git
+.github
+.gitignore
+.gitattributes
+docs
+README.md
+LICENSE
+NOTICE
+.env
+.env.local
+__pycache__/
+*.py[cod]
+.venv/
+dbt/retail/target/
+dbt/retail/dbt_packages/
+dbt/retail/logs/
+dagster_home/

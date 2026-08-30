@@ -1,0 +1,9 @@
+store_id,store_name,city,country,region,opened_date,square_feet
+ST-001,Pearl District,Portland,US,West,2018-03-12,14200
+ST-002,South Congress,Austin,US,South,2019-07-01,11800
+ST-003,Wicker Park,Chicago,US,Midwest,2017-11-20,16500
+ST-004,LoDo,Denver,US,West,2020-02-14,9900
+ST-005,Queen West,Toronto,CA,East,2019-05-06,12400
+ST-006,Gastown,Vancouver,CA,West,2021-09-30,8700
+ST-007,Northern Quarter,Manchester,GB,North,2018-08-08,10250
+ST-008,Harbourside,Bristol,GB,South,2022-04-25,7600

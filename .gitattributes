@@ -1,0 +1,10 @@
+# Normalise text to LF in the repository.
+* text=auto eol=lf
+
+# Sample data files are byte-for-byte fixtures: the seeded defect counts and the
+# row counts asserted in docs/data-quality.md depend on them being stable across
+# clones on every platform. Never let Windows checkout rewrite them to CRLF.
+data/sftp/retail/*.csv text eol=lf
+
+*.png binary
+*.jpg binary
