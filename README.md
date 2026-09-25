@@ -146,8 +146,34 @@ ingest/               PyAirbyte extraction (runs in its own virtualenv)
 pipeline/             Dagster assets, resources and definitions
 dbt/retail/           dbt project: staging -> marts, with the tests
 scripts/              data generator, connector installer, lock and guard scripts
+infra/                Bicep templates for the Azure deployment
 docs/                 architecture, data quality, ingestion options
 ```
+
+## Running it in Azure
+
+The compose stack is the development loop, not a deployment. `infra/` holds
+Bicep templates that run the same pipeline on **Azure Container Apps**, with
+the Dagster processes separated the way Dagster intends:
+
+| | |
+|---|---|
+| `ca-*-webserver` | the UI |
+| `ca-*-daemon` | schedules, sensors, the run queue |
+| `ca-*-code` | the code location, over gRPC |
+| `caj-*-run` | one job execution per Dagster run |
+| `caj-*-ingest` | one job execution per sync |
+
+The same `Dockerfile` builds both images it needs, as the `orchestrator` and
+`ingest` targets -- the two virtualenv stages below were already separate, so
+splitting them into two images cost almost nothing.
+
+```bash
+./infra/deploy.sh rg-etl-poc eastus
+```
+
+Nothing in that deployment stores a credential for Azure, with one documented
+exception. See [`infra/README.md`](infra/README.md).
 
 ## Design decisions
 

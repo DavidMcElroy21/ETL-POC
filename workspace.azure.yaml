@@ -1,0 +1,27 @@
+# Where the webserver and the daemon find the user code, in Azure.
+#
+# The local workspace.yaml loads pipeline.definitions in-process, which works
+# because everything runs in one container. In Azure the code lives in a third
+# container -- ca-dagster-code, running `dagster api grpc` -- so the webserver
+# and daemon connect to it instead of importing it.
+#
+# That separation is the point. Reloading the code location does not restart
+# the UI, a syntax error in an asset cannot take the webserver down with it,
+# and the code location can be redeployed on its own.
+#
+# The host is the app's internal Container Apps FQDN, reachable only inside the
+# environment. Container Apps terminates TLS at its ingress and speaks HTTP/2
+# to the app, which is what lets gRPC work over it.
+#
+# ssl: true is not optional. Ingress serves TLS on 443, so without it Dagster
+# opens a plaintext gRPC channel against an HTTPS listener and the code location
+# never loads -- with a handshake error rather than anything that names the
+# cause. The certificate is the environment's own, so no CA config is needed.
+
+load_from:
+  - grpc_server:
+      host:
+        env: DAGSTER_CODE_SERVER_HOST
+      port: 443
+      ssl: true
+      location_name: retail_pipeline

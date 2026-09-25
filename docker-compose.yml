@@ -78,20 +78,35 @@ services:
   # --------------------------------------------------------------------------
 
   # Option 4: S3-compatible object storage.
+  #
+  # The images come from bitnamilegacy, not from minio. MinIO withdrew
+  # minio/minio and minio/mc from Docker Hub -- the repositories are gone, not
+  # merely moved, and quay.io does not serve them either -- which broke every
+  # pull of the previously pinned digests. Bitnami's archived namespace still
+  # publishes the same software, and both images are pinned by digest here, so
+  # the content is immutable whatever happens to the tag.
+  #
+  # These are unmaintained archives. That is acceptable for a fixture whose job
+  # is to hold seven CSV files for an exercise; it would not be acceptable for
+  # anything in the pipeline's own path.
   minio:
-    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
-    command: server /data --console-address ":9001"
+    image: bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+      # The Bitnami image creates this on first start, so the bucket exists
+      # before minio-init runs rather than only because it does.
+      MINIO_DEFAULT_BUCKETS: ${S3_BUCKET:-etl-poc}
     volumes:
-      - minio_data:/data
+      - minio_data:/bitnami/minio/data
     ports:
       - "${MINIO_PORT:-9000}:9000"
       # Web console, for looking at what actually landed in the bucket.
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     healthcheck:
-      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      # The health endpoint rather than `mc ready local`: that relied on an
+      # alias the official image preconfigured, which this one does not.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/live || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -101,7 +116,7 @@ services:
   # Creates the bucket and uploads the retail CSVs, then exits. Runs once per
   # `up`; re-uploading over an existing object is harmless.
   minio-init:
-    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    image: bitnamilegacy/minio-client@sha256:00dcc4e58ada0df45bb7d9ee435af98295f96c27c3c68292ce78ec700a87b511
     depends_on:
       minio:
         condition: service_healthy
@@ -152,6 +167,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Explicit, and it has to be. The Dockerfile also builds the two images
+      # the Azure deployment needs, and `orchestrator` and `ingest` come after
+      # this one -- so without a target, Docker would build the last stage in
+      # the file and the local stack would quietly come up as the ingest image.
+      target: runtime
     image: etl-poc/pipeline:local
     depends_on:
       postgres:

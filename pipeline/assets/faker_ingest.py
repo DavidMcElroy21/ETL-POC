@@ -12,16 +12,18 @@ See docs/local-ingestion-options.md for the alternatives this stands in for.
 # this function at runtime to build the op definition, so this module must not
 # use `from __future__ import annotations` -- PEP 563 would turn them into
 # strings that Dagster cannot resolve.
+from typing import Any
+
 from dagster import (
     AssetExecutionContext,
     AssetSpec,
     Config,
-    PipesSubprocessClient,
+    ResourceParam,
     multi_asset,
 )
 
 from ingest.streams import FAKER_SCHEMA, FAKER_STREAM_NAMES
-from pipeline.config import INGEST_PYTHON, ingest_env
+from pipeline.ingest_launch import launch_ingest
 
 GROUP_NAME = "synthetic_ingest"
 
@@ -45,20 +47,32 @@ FAKER_ASSET_SPECS = [
 ]
 
 
+# ingest_client is annotated ResourceParam[Any] rather than with a concrete
+# class. Dagster decides whether a parameter is a resource or an upstream
+# asset from its annotation, and an unannotated one becomes an asset input --
+# which fails at load time with a message about missing AssetDeps. A concrete
+# annotation is not available here: the resource is a PipesSubprocessClient
+# locally and a PipesAcaJobClient in Azure, and the asset must not care which.
 @multi_asset(
+    # Explicit op name, because the group, the job and this function would
+    # otherwise all be called synthetic_ingest -- and an op and a job sharing a
+    # name is a hard error in Dagster. It surfaces only where all definitions
+    # are loaded eagerly, which `dagster api grpc` does and `dagster dev` does
+    # not, so the Azure code location hits it and the local stack never would.
+    name="synthetic_ingest_assets",
     specs=FAKER_ASSET_SPECS,
 )
 def synthetic_ingest(
     context: AssetExecutionContext,
     config: FakerConfig,
-    pipes_subprocess_client: PipesSubprocessClient,
+    ingest_client: ResourceParam[Any],
 ):
     """Generate synthetic records and load them into their own schema."""
     context.log.info(f"generating {config.count} records with seed {config.seed}")
 
-    return pipes_subprocess_client.run(
-        command=[str(INGEST_PYTHON), "-m", "ingest.run_faker_sync"],
+    return launch_ingest(
         context=context,
+        client=ingest_client,
+        module="ingest.run_faker_sync",
         extras={"count": config.count, "seed": config.seed},
-        env=ingest_env(),
-    ).get_results()
+    )

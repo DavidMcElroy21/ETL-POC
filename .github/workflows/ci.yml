@@ -58,6 +58,73 @@ jobs:
       - name: Committed data matches the generator output
         run: git diff --exit-code -- data/
 
+  azure-images:
+    name: Azure images build and load
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # The two images the Container Apps deployment runs. They are separate
+      # stages from the compose image, so nothing else in this workflow would
+      # notice them breaking -- and the failure mode is a code location that
+      # will not load, which only appears once it is deployed.
+      - name: Build the orchestrator image
+        run: |
+          docker build --build-arg SOURCE_STAGE=local-source             --target orchestrator -t etl-poc-orchestrator:ci .
+
+      - name: Build the ingest image
+        run: |
+          docker build --build-arg SOURCE_STAGE=local-source             --target ingest -t etl-poc-ingest:ci .
+
+      # `dagster api grpc` is what the code-location container actually runs,
+      # and it loads every definition eagerly -- which `dagster dev` does not.
+      # A definition conflict shows up here and nowhere else.
+      - name: Code location starts over gRPC
+        run: |
+          docker run --rm -d --name code -e POSTGRES_PASSWORD=ci             etl-poc-orchestrator:ci             dagster api grpc --host 0.0.0.0 --port 4000             --module-name pipeline.definitions
+          for _ in $(seq 1 30); do
+            if docker logs code 2>&1 | grep -q "Started Dagster code server"; then
+              docker rm -f code >/dev/null
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs code
+          docker rm -f code >/dev/null
+          echo "::error::code server did not start"
+          exit 1
+
+      - name: Azure instance config is valid
+        run: |
+          docker run --rm -e DAGSTER_HOME=/opt/dagster/home -e POSTGRES_PASSWORD=ci             -e AZURE_RESOURCE_GROUP=rg -e ACA_RUN_JOB_NAME=job             -e AZURE_SUBSCRIPTION_ID=00000000-0000-0000-0000-000000000000             -e DAGSTER_PG_USERNAME=u -e DAGSTER_PG_HOST=h -e DAGSTER_PG_DB=dagster             -e AZURE_STORAGE_ACCOUNT=s -e AZURE_LOGS_CONTAINER=dagster             etl-poc-orchestrator:ci python -c "
+          from dagster._core.instance.config import dagster_instance_config
+          config, _ = dagster_instance_config('/opt/dagster/home')
+          for key in ('storage', 'run_launcher', 'run_coordinator', 'compute_logs'):
+              assert key in config, key
+          print('ok')
+          "
+
+      - name: Ingest image carries no orchestrator dependencies
+        run: |
+          if docker run --rm --entrypoint python etl-poc-ingest:ci -c "import dagster" 2>/dev/null; then
+            echo "::error::dagster leaked into the ingest image"
+            exit 1
+          fi
+          docker run --rm --entrypoint python etl-poc-ingest:ci             -c "import airbyte, azure.identity, azure.storage.blob, dagster_pipes"
+
+  bicep:
+    name: Bicep templates compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the templates
+        run: |
+          az bicep install
+          az bicep build --file infra/main.bicep --stdout > /dev/null
+
   pipeline:
     name: End-to-end pipeline
     runs-on: ubuntu-latest

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from dagster import PipesSubprocessClient
 from dagster_dbt import DbtCliResource, DbtProject
 
@@ -29,10 +31,41 @@ dbt_project = DbtProject(
 # means a rebuild either way.
 
 
+def _build_ingest_client() -> object:
+    """Pick the Pipes client for wherever this code location is running.
+
+    Locally the ingest virtualenv sits in the same image, so a subprocess is
+    both the simplest and the fastest thing. In Azure it is a separate image in
+    a separate Container Apps job, so the client has to start that job and read
+    its messages out of blob storage instead.
+
+    The switch is the presence of ACA_INGEST_JOB_NAME, which only the Azure
+    deployment sets. Importing the Azure client lazily matters: it pulls in the
+    Azure SDKs, which the orchestrator image has but a local checkout does not
+    need in order to run the compose stack.
+    """
+    ingest_job = os.environ.get("ACA_INGEST_JOB_NAME")
+    if not ingest_job:
+        return PipesSubprocessClient()
+
+    from pipeline.azure.pipes import PipesAcaJobClient
+
+    return PipesAcaJobClient(
+        resource_group=os.environ["AZURE_RESOURCE_GROUP"],
+        job_name=ingest_job,
+        storage_account_url=os.environ["AZURE_STORAGE_ACCOUNT_URL"],
+        blob_container=os.environ.get("AZURE_PIPES_CONTAINER", "dagster"),
+        subscription_id=os.environ.get("AZURE_SUBSCRIPTION_ID"),
+        timeout=float(os.environ.get("ACA_INGEST_TIMEOUT_SECONDS", "3600")),
+    )
+
+
 def build_resources() -> dict[str, object]:
     return {
         "dbt": DbtCliResource(project_dir=dbt_project),
-        # Launches the ingest virtualenv and relays its logs and asset
-        # materializations back into the Dagster run.
-        "pipes_subprocess_client": PipesSubprocessClient(),
+        # Runs an ingest module and relays its logs and asset materializations
+        # back into the Dagster run -- as a subprocess locally, as a Container
+        # Apps job in Azure. pipeline/ingest_launch.py hides the difference
+        # from the assets so they read the same either way.
+        "ingest_client": _build_ingest_client(),
     }

@@ -22,3 +22,14 @@ dagster-pipes==1.13.20
 # Used directly rather than through airbyte-source-s3, which cannot be installed
 # from PyPI -- see the note in ingest/connectors.py.
 boto3==1.43.83
+
+# --- Azure deployment (infra/) ----------------------------------------------
+#
+# In Azure this image runs as a Container Apps job, which has no ingress, so it
+# cannot be handed a socket to report progress on. It writes Pipes messages to
+# blob storage instead and the run worker reads them from there.
+#
+# azure-identity lets it authenticate as the job's managed identity, so no
+# storage key or connection string is ever passed to the container.
+azure-identity==1.25.3
+azure-storage-blob==12.30.3

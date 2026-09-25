@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "namePrefix": {
+      "value": "etl-poc"
+    },
+    "tags": {
+      "value": {
+        "project": "etl-poc",
+        "managedBy": "bicep"
+      }
+    },
+    "deployDemoSources": {
+      "value": true
+    },
+    "internalOnly": {
+      "value": false
+    },
+    "registryAllowPublicNetworkAccess": {
+      "value": true
+    },
+    "storageAllowPublicNetworkAccess": {
+      "value": true
+    },
+    "alertEmail": {
+      "value": ""
+    }
+  }
+}

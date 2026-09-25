@@ -1,0 +1,94 @@
+# Dagster instance configuration for the Azure deployment.
+#
+# The local dagster.yaml keeps run, event and schedule storage in a SQLite file
+# and executes runs inside whichever process launched them. Neither survives
+# the move to Container Apps: the webserver, the daemon and every run worker
+# are separate containers with separate filesystems, so they need shared
+# storage to see the same runs, and runs need somewhere to execute that is not
+# the code-location container.
+#
+# Selected with DAGSTER_HOME pointing at the directory this file is copied
+# into; see infra/modules/aca-apps.bicep.
+
+telemetry:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# Shared storage. This is what makes the three apps one Dagster instance.
+#
+# No password anywhere: auth_provider gets a short-lived Entra token through
+# DefaultAzureCredential and injects it as the password on each connection, so
+# the managed identity is the credential. The provider is named azure_wif
+# (workload identity federation) but DefaultAzureCredential resolves the
+# user-assigned identity Container Apps exposes just as well.
+# ---------------------------------------------------------------------------
+storage:
+  postgres:
+    postgres_db:
+      username:
+        env: DAGSTER_PG_USERNAME
+      hostname:
+        env: DAGSTER_PG_HOST
+      db_name:
+        env: DAGSTER_PG_DB
+      port: 5432
+      params:
+        # Azure Database for PostgreSQL rejects unencrypted connections.
+        sslmode: require
+    auth_provider:
+      azure_wif:
+        scope: https://ossrdbms-aad.database.windows.net/.default
+
+# ---------------------------------------------------------------------------
+# One Container Apps job execution per run. See pipeline/azure/run_launcher.py.
+# ---------------------------------------------------------------------------
+run_launcher:
+  module: pipeline.azure.run_launcher
+  class: AcaJobRunLauncher
+  config:
+    resource_group:
+      env: AZURE_RESOURCE_GROUP
+    job_name:
+      env: ACA_RUN_JOB_NAME
+    subscription_id:
+      env: AZURE_SUBSCRIPTION_ID
+
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    # Each queued run becomes its own container, so this is a cost and quota
+    # ceiling rather than a limit on one machine's resources.
+    max_concurrent_runs: 10
+
+# ---------------------------------------------------------------------------
+# stdout and stderr from every run worker, kept where the UI can read them.
+#
+# Without this, logs live on the run worker's filesystem, which is destroyed
+# when the job execution finishes -- so the logs for exactly the runs worth
+# investigating would be the ones already gone.
+# ---------------------------------------------------------------------------
+compute_logs:
+  module: dagster_azure.blob.compute_log_manager
+  class: AzureBlobComputeLogManager
+  config:
+    storage_account:
+      env: AZURE_STORAGE_ACCOUNT
+    container:
+      env: AZURE_LOGS_CONTAINER
+    default_azure_credential: {}
+    prefix: dagster-compute-logs
+
+# The daemon marks a run failed when its worker dies without reporting, using
+# AcaJobRunLauncher.check_run_worker_health. Without this a container that is
+# OOM-killed or evicted mid-run leaves the run STARTED forever.
+run_monitoring:
+  enabled: true
+  start_timeout_seconds: 600
+  max_resume_run_attempts: 0
+
+retention:
+  schedule:
+    purge_after_days: 30
+  sensor:
+    purge_after_days: 30
