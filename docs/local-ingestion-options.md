@@ -173,6 +173,14 @@ filesystem and an object store: an endpoint and credentials, prefix-based
 organisation, paginated listing, and per-object reads. The same code runs against
 real S3 by changing the endpoint and credentials.
 
+The images come from Bitnami's `bitnamilegacy` namespace rather than from
+`minio`. MinIO withdrew `minio/minio` and `minio/mc` from Docker Hub -- the
+repositories are gone rather than moved, and quay.io does not serve them either
+-- so the previously pinned digests can no longer be pulled by anyone. The
+Bitnami archive publishes the same software and is pinned by digest here. It is
+unmaintained, which is a reasonable trade for a fixture that holds seven CSV
+files and would not be for anything in the pipeline's own path.
+
 **Already running and seeded.** The seven retail CSVs are in the bucket:
 
 ```bash
