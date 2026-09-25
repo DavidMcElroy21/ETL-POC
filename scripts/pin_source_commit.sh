@@ -32,6 +32,8 @@ SOURCE_PATHS=(
   requirements
   dagster.yaml
   workspace.yaml
+  dagster.azure.yaml
+  workspace.azure.yaml
   docker-entrypoint.sh
 )
 
