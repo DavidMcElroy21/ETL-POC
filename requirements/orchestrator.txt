@@ -19,3 +19,26 @@ dbt-core==1.11.14
 dbt-postgres==1.11.0
 
 psycopg2-binary==2.9.12
+
+# --- Azure deployment (infra/) ----------------------------------------------
+#
+# Note the version scheme: Dagster libraries use 0.x numbering, not core's 1.x.
+# There is no dagster-postgres==1.13.20; 0.29.20 is the release that pins
+# dagster==1.13.20, the same way dagster-dbt==0.29.20 does.
+#
+# dagster-postgres moves run, event and schedule storage off the local SQLite
+# file and onto Azure Database for PostgreSQL. The [azure] extra adds
+# azure-identity so the connection can authenticate as the managed identity
+# rather than with a password.
+dagster-postgres[azure]==0.29.20
+
+# Compute logs to blob storage (AzureBlobComputeLogManager), and the two halves
+# of the Pipes transport the ingest job reports through:
+# PipesAzureBlobStorageContextInjector and PipesAzureBlobStorageMessageReader.
+# Blob rather than a socket because Container Apps jobs have no ingress.
+dagster-azure==0.29.20
+
+# Starts Container Apps job executions. This is what the custom run launcher in
+# pipeline/azure/ calls to give each Dagster run its own container.
+azure-mgmt-appcontainers==5.1.0
+azure-identity==1.25.3

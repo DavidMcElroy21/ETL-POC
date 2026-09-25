@@ -152,6 +152,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Explicit, and it has to be. The Dockerfile also builds the two images
+      # the Azure deployment needs, and `orchestrator` and `ingest` come after
+      # this one -- so without a target, Docker would build the last stage in
+      # the file and the local stack would quietly come up as the ingest image.
+      target: runtime
     image: etl-poc/pipeline:local
     depends_on:
       postgres:

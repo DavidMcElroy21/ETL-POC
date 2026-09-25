@@ -178,11 +178,56 @@ when a point release is superseded, and the build then fails. That is the
 intended behaviour — a loud failure beats silent drift — and the Dockerfile
 records the command to refresh them.
 
+## The Azure deployment
+
+Everything above describes one image running five roles at once, because on one
+machine that is the cheapest thing that works. `infra/` deploys the same
+pipeline to Azure Container Apps with those roles separated, and the separation
+is what most of the phase-2 design is about.
+
+**Two images, from the same Dockerfile.** The `orchestrator` target carries
+Dagster, dagster-dbt and the dbt project; the `ingest` target carries PyAirbyte
+and the baked connector venvs. The virtualenv split that dependency conflicts
+forced in the first place is what makes this nearly free -- the two stages
+already existed, and each new image copies one of them.
+
+`ingest/streams.py` ships in both. It is the only definition of the stream list
+and the raw schema names, and shipping it twice is what keeps the Dagster asset
+keys and the connector configuration from drifting apart. It imports nothing
+outside the standard library, so the orchestrator image can read it without
+PyAirbyte anywhere near it.
+
+**Two custom pieces, and no more.** Dagster ships run launchers for Kubernetes,
+Docker and ECS, and `dagster-azure` ships the blob-storage halves of Pipes. What
+does not exist is the Container Apps launcher, so `pipeline/azure/` contains
+exactly that and nothing else: `run_launcher.py` starts a job execution per run,
+`pipes.py` starts one per ingest sync, and `aca_client.py` holds the API calls
+they share. The Pipes transport itself is `dagster-azure`'s.
+
+**Blob storage is the Pipes channel, not a preference.** Container Apps jobs
+have no ingress. There is no socket for the run worker to connect to and none
+for the job to connect back through, so the context going out and the messages
+coming back both travel through blob storage. That constraint is also why
+ingestion is a job rather than an app.
+
+**The ingest half stops being a subprocess.** Locally, Dagster launches the
+ingest virtualenv as a child process; in Azure it starts a container. The assets
+do not know which. `pipeline/ingest_launch.py` is the single place that knows,
+and `pipeline/resources.py` chooses between the two clients on the presence of
+one environment variable -- so the local developer loop is byte-for-byte
+unchanged by any of this.
+
+See [`infra/README.md`](../infra/README.md) for the deployment itself, and for
+the handful of platform behaviours that are load-bearing: full-template
+replacement on execution override, `command` mapping to ENTRYPOINT rather than
+CMD, and the daemon's single-replica constraint.
+
 ## Trade-offs taken
 
 **SQLite for Dagster storage.** Run history lives in a named volume. Adequate for
 a POC, and it avoids a second database dependency. Swap in `dagster-postgres` for
-anything real.
+anything real -- which is exactly what `dagster.azure.yaml` does, since three
+containers cannot share a SQLite file.
 
 **`write_strategy="replace"` on every sync.** Full refresh each run, which keeps
 the demo predictable. Real incremental sync would use the connector's file

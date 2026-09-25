@@ -187,9 +187,20 @@ RUN "${ORCHESTRATOR_VENV}/bin/dbt" deps --project-dir /opt/etl/dbt/retail
 
 
 # ---------------------------------------------------------------------------
-# Stage: runtime
+# Stage: app-base -- settings and the runtime user, shared by every final image.
+#
+# Three images are built from this file, and they differ only in which
+# virtualenv and which source they carry:
+#
+#   runtime       both venvs, everything. The local `docker compose` stack.
+#   orchestrator  Dagster + dbt. Azure: webserver, daemon, code location, run worker.
+#   ingest        PyAirbyte + connectors. Azure: the ingest job.
+#
+# Splitting them is the point of the Azure deployment: the ingestion half runs
+# as its own container rather than a subprocess of whatever launched it. The
+# venv boundary that made that possible already existed -- see the header.
 # ---------------------------------------------------------------------------
-FROM base AS runtime
+FROM base AS app-base
 
 ENV INGEST_VENV=/opt/venv/ingest \
     ORCHESTRATOR_VENV=/opt/venv/orchestrator \
@@ -219,15 +230,25 @@ ENV DO_NOT_TRACK=1
 # docker-compose.offline.yml.
 ENV AIRBYTE_OFFLINE_MODE=1
 
-# The orchestrator venv is first on PATH: `dagster` and `dbt` resolve without
-# qualification, while the ingest venv is addressed explicitly by full path so
-# there is never any doubt about which interpreter is running the connector.
-ENV PATH="${ORCHESTRATOR_VENV}/bin:${PATH}"
+# Both venvs must be importable from the app root for `python -m pipeline...`
+# and `python -m ingest...` to work.
+ENV PYTHONPATH=${APP_HOME}
 
 RUN groupadd --system --gid 1000 etl \
     && useradd --system --uid 1000 --gid etl --create-home --home-dir /home/etl etl \
     && mkdir -p "${APP_HOME}" "${DAGSTER_HOME}" \
     && chown -R etl:etl "${APP_HOME}" "${DAGSTER_HOME}" /opt/venv 2>/dev/null || true
+
+
+# ---------------------------------------------------------------------------
+# Stage: runtime -- the combined image the local compose stack runs.
+# ---------------------------------------------------------------------------
+FROM app-base AS runtime
+
+# The orchestrator venv is first on PATH: `dagster` and `dbt` resolve without
+# qualification, while the ingest venv is addressed explicitly by full path so
+# there is never any doubt about which interpreter is running the connector.
+ENV PATH="${ORCHESTRATOR_VENV}/bin:${PATH}"
 
 COPY --from=ingest-venv --chown=etl:etl /opt/venv/ingest /opt/venv/ingest
 COPY --from=ingest-venv --chown=etl:etl /opt/airbyte /opt/airbyte
@@ -260,10 +281,6 @@ RUN "${ORCHESTRATOR_VENV}/bin/dbt" parse \
 
 USER etl
 
-# Both venvs must be importable from the app root for `python -m pipeline...`
-# and `python -m ingest...` to work.
-ENV PYTHONPATH=${APP_HOME}
-
 EXPOSE 3000
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
@@ -271,3 +288,109 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
 
 ENTRYPOINT ["/opt/etl/docker-entrypoint.sh"]
 CMD ["dagster", "dev", "--host", "0.0.0.0", "--port", "3000", "--workspace", "/opt/etl/workspace.yaml"]
+
+
+# ---------------------------------------------------------------------------
+# Stage: orchestrator -- Dagster and dbt, without PyAirbyte.
+#
+# Runs four of the five Azure workloads: the webserver, the daemon, the
+# code-location gRPC server, and the per-run worker. They differ only in the
+# command Container Apps gives them, so they share one image.
+#
+# No PyAirbyte here. That is the whole point: ingestion is a separate container
+# now, so this image does not carry Snowflake, BigQuery and DuckDB drivers it
+# will never load.
+# ---------------------------------------------------------------------------
+FROM app-base AS orchestrator
+
+ENV PATH="${ORCHESTRATOR_VENV}/bin:${PATH}"
+
+COPY --from=orchestrator-venv --chown=etl:etl /opt/venv/orchestrator /opt/venv/orchestrator
+COPY --from=orchestrator-venv --chown=etl:etl /opt/etl/dbt/retail/dbt_packages /opt/etl/dbt/retail/dbt_packages
+
+WORKDIR ${APP_HOME}
+
+COPY --from=source --chown=etl:etl /src/GIT_COMMIT ./
+COPY --from=source --chown=etl:etl /src/pipeline ./pipeline
+COPY --from=source --chown=etl:etl /src/dbt ./dbt
+COPY --from=source --chown=etl:etl /src/scripts ./scripts
+
+# The Azure instance and workspace configuration. scripts/azure/entrypoint.sh
+# copies dagster.azure.yaml into DAGSTER_HOME at start, and the webserver and
+# daemon are given workspace.azure.yaml explicitly. Neither replaces the local
+# dagster.yaml/workspace.yaml, which stay with the `runtime` stage.
+COPY --from=source --chown=etl:etl /src/dagster.azure.yaml ./
+COPY --from=source --chown=etl:etl /src/workspace.azure.yaml ./
+RUN chmod +x ./scripts/azure/entrypoint.sh
+
+# ingest/streams.py is the single definition of the stream list and the raw
+# schema names. pipeline/ imports it to build asset keys, and the ingest image
+# imports it to drive the connector, which is what stops the two drifting
+# apart. It is standard library only, so it costs this image nothing.
+COPY --from=source --chown=etl:etl /src/ingest/__init__.py ./ingest/
+COPY --from=source --chown=etl:etl /src/ingest/streams.py ./ingest/
+
+# Same reasoning as the combined image: bake the manifest so the asset graph
+# loads without shelling out to dbt, and so an unparseable project fails the
+# build rather than the first run.
+RUN "${ORCHESTRATOR_VENV}/bin/dbt" parse \
+        --project-dir "${DBT_PROJECT_DIR}" \
+        --profiles-dir "${DBT_PROFILES_DIR}" \
+        --target build \
+    && rm -rf "${DBT_PROJECT_DIR}/logs" \
+    && chown -R etl:etl "${DBT_PROJECT_DIR}" \
+    && mkdir -p "${DBT_LOG_PATH}" \
+    && chown -R etl:etl "${DBT_LOG_PATH}"
+
+USER etl
+
+# The code-location gRPC port. The webserver and daemon reach it over the
+# Container Apps environment's internal ingress; nothing is published publicly.
+EXPOSE 4000
+
+# Everything goes through the shared Azure entrypoint, which mints the Postgres
+# token and lays down the instance config. The webserver, daemon and run worker
+# override the command -- and because a Container Apps command override
+# replaces ENTRYPOINT rather than CMD, each of those overrides names this
+# script itself as its first element. See pipeline/azure/aca_client.py.
+ENTRYPOINT ["/opt/etl/scripts/azure/entrypoint.sh"]
+
+# Default to the code-location server, the one workload that does not override.
+CMD ["dagster", "api", "grpc", "--host", "0.0.0.0", "--port", "4000", \
+     "--module-name", "pipeline.definitions"]
+
+
+# ---------------------------------------------------------------------------
+# Stage: ingest -- PyAirbyte and its connectors, without Dagster or dbt.
+#
+# Runs one Azure workload: the ingest job, started per sync by the Dagster run
+# worker through Pipes. It talks back over blob storage rather than a socket,
+# because Container Apps jobs have no ingress.
+# ---------------------------------------------------------------------------
+FROM app-base AS ingest
+
+ENV PATH="${INGEST_VENV}/bin:${PATH}"
+
+COPY --from=ingest-venv --chown=etl:etl /opt/venv/ingest /opt/venv/ingest
+COPY --from=ingest-venv --chown=etl:etl /opt/airbyte /opt/airbyte
+
+WORKDIR ${APP_HOME}
+
+COPY --from=source --chown=etl:etl /src/GIT_COMMIT ./
+COPY --from=source --chown=etl:etl /src/ingest ./ingest
+
+# Only the Azure scripts, not all of scripts/ -- the rest of that directory is
+# build and repo tooling with no business in a runtime image. These two are
+# stdlib plus azure-identity, so they run under the ingest virtualenv as
+# happily as under the orchestrator one.
+COPY --from=source --chown=etl:etl /src/scripts/azure ./scripts/azure
+RUN chmod +x ./scripts/azure/entrypoint.sh
+
+USER etl
+
+ENTRYPOINT ["/opt/etl/scripts/azure/entrypoint.sh"]
+
+# No default command. Every execution names the module it wants -- the SFTP
+# sync, the faker sync -- so leaving this unset makes a misconfigured job fail
+# loudly instead of silently running the wrong sync.
+CMD ["python", "-c", "import sys; sys.exit('ingest image: specify a module, e.g. -m ingest.run_sftp_sync')"]
